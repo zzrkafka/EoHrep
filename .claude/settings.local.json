@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(ls /c/Users/81309/.claude/projects/C--Users-81309-OneDrive-Desktop-Idea-EOH/memory/ 2>/dev/null || echo \"no memory\")",
+      "Bash(rm -rf runs/*)",
+      "Bash(python -m eoh.run --config configs/obp.yaml --dry-run)",
+      "Bash(python -m eoh.run --config configs/obp.yaml)"
+    ]
+  }
+}

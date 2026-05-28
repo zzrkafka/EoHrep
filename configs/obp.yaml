@@ -1,0 +1,29 @@
+# EoH-local OBP config (v0.1).
+# Mirrors the official OBP example (examples/bp_online/runEoH.py) where possible.
+
+task:
+  name: obp
+  capacity: 100                 # forwarded to BPONLINE.__init__ for parity; data uses per-instance capacity
+  timeout: 40                   # seconds per evaluate() in sandbox
+  n_processes: 1                # v0.1 is sequential
+
+llm:
+  backend: ollama
+  base_url: http://localhost:11434
+  model: qwen2.5-coder:7b-instruct-q4_K_M
+  num_ctx: 8192
+  timeout: 180                  # seconds per LLM HTTP call
+  max_retries: 5
+  # temperature omitted on purpose — see notes/06_eoh_repro_design.md §10
+
+ea:
+  pop_size: 4                   # matches the official runEoH.py example
+  n_pop: 20
+  operators: [e1, e2, m1, m2]   # m3 not enabled in the official OBP example
+  operator_weights: null        # → uniform [1.0, 1.0, 1.0, 1.0]
+  n_parents: 2                  # for e1/e2; m1/m2/m3 always use 1
+  seed: 2024
+
+logging:
+  output_dir: runs
+  debug: false

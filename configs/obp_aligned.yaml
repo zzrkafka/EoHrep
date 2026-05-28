@@ -1,0 +1,37 @@
+# EoH-local OBP — paper-aligned config (v2).
+#
+# Differences vs configs/obp.yaml (the GitHub demo mirror):
+#   - operators includes m3 (anti-overfitting / simplification)
+#   - pop_size lifted 4 → 20 to grow per-generation sampling budget
+#   - total query budget 88 → 440 (still 1/5 of the paper's ~2000,
+#     bounded by local-GPU wall-clock; gives 5× more search than baseline)
+#
+# Goal: ablate "operators × budget" against the baseline run, to identify
+# how far we can close the gap to the paper's 0.80% on Weibull 5kC100
+# using the same 7B-Q4 local LLM.
+
+task:
+  name: obp
+  capacity: 100
+  timeout: 40
+  n_processes: 1
+
+llm:
+  backend: ollama
+  base_url: http://localhost:11434
+  model: qwen2.5-coder:7b-instruct-q4_K_M
+  num_ctx: 8192
+  timeout: 180
+  max_retries: 5
+
+ea:
+  pop_size: 20
+  n_pop: 20
+  operators: [e1, e2, m1, m2, m3]      # full 5-operator set, matching paper §3.4
+  operator_weights: null               # uniform [1.0]*5
+  n_parents: 2
+  seed: 2024
+
+logging:
+  output_dir: runs
+  debug: false
