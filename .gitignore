@@ -19,8 +19,9 @@ runs/
 .DS_Store
 Thumbs.db
 
+docs/
 notes/
-
+CHANGELOG.md
 # Tests
 .pytest_cache/
 .coverage

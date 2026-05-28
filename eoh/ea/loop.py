@@ -1,7 +1,4 @@
-"""Main EoH loop — mirrors upstream `eoh/src/eoh/eoh/eoh.py:EOH.run` and
-extends sample records with lineage / timing / failure / forensics. Also
-dumps a final `summary.json` (L5).
-"""
+"""Main EoH evolution loop."""
 from __future__ import annotations
 
 import json
@@ -83,7 +80,6 @@ def run_eoh(
     _log_header(cfg)
     t0 = time.perf_counter()
 
-    # ── initialisation ──────────────────────────────────────────────────
     if resume_path is not None:
         with Path(resume_path).open("r", encoding="utf-8") as f:
             population = json.load(f)
@@ -103,9 +99,6 @@ def run_eoh(
                     raw.append(strip_private(off))
         population = population_management(raw, cfg.ea.pop_size)
         if not population:
-            # Flush forensics before failing — the very thing the operator
-            # needs to diagnose "why did init fail" lives in samples_*.json
-            # and prompts/sample_<id>.json.
             journal.flush()
             _write_summary(run_dir, journal, int((time.perf_counter() - t0) * 1000))
             raise RuntimeError(
@@ -120,7 +113,6 @@ def run_eoh(
         journal.save_population(population, 0)
         gen_start = 0
 
-    # ── main loop ────────────────────────────────────────────────────────
     for gen in range(gen_start, cfg.ea.n_pop):
         logger.info("")
         logger.info("[Gen %d/%d]", gen + 1, cfg.ea.n_pop)

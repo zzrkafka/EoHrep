@@ -1,13 +1,4 @@
-"""Subprocess sandbox for evaluating LLM-generated code.
-
-Returns a structured result rather than a bare `float | None`, so the
-calling layer can attribute failures to a specific exception type / message
-/ traceback — critical for diagnosing why an LLM-written heuristic blew up.
-
-Module-level functions (pickleable for `spawn`). Mirrors upstream
-`evolution.py:_eval_worker / _eval_with_timeout` for *behaviour*, not for
-return shape.
-"""
+"""Subprocess sandbox for safe evaluation of LLM-generated code."""
 from __future__ import annotations
 
 import logging
@@ -25,12 +16,12 @@ _MP_CTX = multiprocessing.get_context("spawn")
 
 @dataclass
 class EvalResult:
-    """Outcome of one sandbox evaluation. Exactly one of `value` / error fields is set."""
+    """Result of one sandbox evaluation."""
     ok: bool
     value: float | None = None
-    error_type: str | None = None        # e.g. "NameError", "ZeroDivisionError", "SandboxTimeout"
-    error_msg: str | None = None         # one-line summary
-    traceback: str | None = None         # full multi-line traceback (str)
+    error_type: str | None = None
+    error_msg: str | None = None
+    traceback: str | None = None
 
     def to_dict(self) -> dict:
         return {
@@ -43,11 +34,7 @@ class EvalResult:
 
 
 def _eval_worker(queue, problem, code) -> None:
-    """Subprocess entry — pickleable, module-level.
-
-    Catches every exception from `problem.evaluate(code)` and forwards a
-    structured EvalResult dict through the queue.
-    """
+    """Subprocess entry: evaluate code and put the result dict in the queue."""
     if sys.platform != "win32":
         os.setsid()
     try:
@@ -64,7 +51,7 @@ def _eval_worker(queue, problem, code) -> None:
             ok=False,
             error_type=type(e).__name__,
             error_msg=str(e)[:500] if str(e) else type(e).__name__,
-            traceback=traceback.format_exc()[-4000:],   # cap to avoid runaway logs
+            traceback=traceback.format_exc()[-4000:],
         ).to_dict())
 
 

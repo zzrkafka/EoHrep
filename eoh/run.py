@@ -1,9 +1,4 @@
-"""CLI entry: `python -m eoh.run --config <path> [--dry-run] [--resume <pop.json>]`.
-
-In --dry-run mode the LLM client is replaced by a stub returning a known-good
-score function; this exercises the full pipeline (init → generations → eval
-→ selection → checkpoints) without hitting Ollama.
-"""
+"""CLI entry point: eoh --config <path> [--dry-run] [--resume <pop.json>]."""
 from __future__ import annotations
 
 import argparse
@@ -29,7 +24,6 @@ def _timestamp_dir(parent: str) -> Path:
 
 
 def _dump_effective_config(cfg: Config, run_dir: Path) -> None:
-    """Persist the effective config as a YAML so runs are reproducible."""
     blob: dict[str, Any] = {
         "task": vars(cfg.task),
         "llm": vars(cfg.llm),
@@ -60,8 +54,6 @@ def main(argv: list[str] | None = None) -> int:
     logger = setup_logger(log_path, debug=cfg.logging.debug)
     _dump_effective_config(cfg, run_dir)
 
-    # Run-level forensics: env + git + Ollama digest. Captured BEFORE the loop
-    # starts so we still have it on a partial / crashed run.
     from eoh.util.runmeta import collect_env_metadata, dump_env
     env = collect_env_metadata(
         cwd=".",
@@ -106,7 +98,6 @@ def main(argv: list[str] | None = None) -> int:
 
 
 def _build_problem(cfg: Config):
-    """Task factory dispatch by cfg.task.name."""
     if cfg.task.name == "obp":
         from eoh.tasks.obp import BPONLINE
         return BPONLINE(

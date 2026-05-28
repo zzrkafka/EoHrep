@@ -1,14 +1,4 @@
-"""Evolution: build prompt → call LLM → extract → sandbox-evaluate → wrap.
-
-Mirrors upstream `evolution.py:Evolution` for algorithm behaviour. Adds:
-  - stable per-offspring id (8-char uuid)
-  - parent_ids tracking (lineage)
-  - per-sample timing (llm_ms / eval_ms / total_ms)
-  - retry counters (llm_retries / dedup_retries)
-  - failure classification (see eoh.util.failure.FailureReason)
-  - private fields `_prompts` / `_responses` consumed by SampleJournal for
-    prompt-level forensics, then stripped from the persisted record.
-"""
+"""Build prompt, call LLM, extract code, evaluate, and return offspring."""
 from __future__ import annotations
 
 import logging
@@ -17,6 +7,7 @@ import uuid
 from typing import Any
 
 import numpy as np
+from joblib import Parallel, delayed
 
 from eoh.ea.prompts import build_prompt
 from eoh.ea.selection import parent_selection
@@ -42,16 +33,16 @@ def _empty_offspring(op: str) -> dict:
         "other_inf": None,
         "parent_ids": [],
         "failure": None,
-        "error_type": None,         # populated on eval_error / eval_non_finite
+        "error_type": None,
         "error_msg": None,
         "llm_retries": 0,
         "dedup_retries": 0,
         "llm_ms": 0,
         "eval_ms": 0,
         "total_ms": 0,
-        "_prompts": [],             # stripped before persistence
+        "_prompts": [],
         "_responses": [],
-        "_eval_traceback": None,    # full traceback, persisted to prompts/sample_<id>.json
+        "_eval_traceback": None,
     }
 
 
@@ -65,10 +56,8 @@ class Evolution:
         self.timeout = problem.timeout
         self.n_processes = problem.n_processes
 
-    # ── LLM call + extraction ─────────────────────────────────────────────
-
     def _call_llm(self, prompt: str, off: dict) -> tuple[str | None, str | None]:
-        """Up to 4 attempts to obtain (algorithm, code). Updates `off` counters."""
+        """Try up to 4 times to get (algorithm, code) from the LLM."""
         algorithm: list[str] = []
         code: list[str] = []
         off["_prompts"].append(prompt)
@@ -88,8 +77,6 @@ class Evolution:
         if not algorithm or not code:
             return None, None
         return prepend_imports(code[0], self.template_program), algorithm[0]
-
-    # ── single-offspring generation ───────────────────────────────────────
 
     def _generate(self, population: list[dict], operator: str, off: dict):
         if operator == "i1":
@@ -118,9 +105,7 @@ class Evolution:
         return parents, code, algorithm
 
     def get_offspring(self, population: list[dict], operator: str) -> tuple[Any, dict]:
-        """Always returns an offspring dict (never None). On failure, `failure`
-        is set and `objective` is None.
-        """
+        """Generate one offspring. On failure, sets `failure` and leaves `objective` as None."""
         off = _empty_offspring(operator)
         t_total = time.perf_counter()
         try:
@@ -133,9 +118,6 @@ class Evolution:
                 off["total_ms"] = int((time.perf_counter() - t_total) * 1000)
                 return parents, off
 
-            # Upstream behaviour: dedup retry is a soft attempt. After 2 tries
-            # we proceed to eval regardless; population_management() dedupes
-            # by objective on the downstream side.
             while self._is_duplicate(population, code) and off["dedup_retries"] < 2:
                 logger.debug("  [offspring] duplicate — retrying...")
                 off["dedup_retries"] += 1
@@ -157,8 +139,6 @@ class Evolution:
             off["eval_ms"] = int((time.perf_counter() - t_eval) * 1000)
 
             if not result.ok:
-                # Sandbox returns one of: SandboxTimeout / SandboxQueueEmpty /
-                # any Python exception name (NameError, ZeroDivisionError, ...).
                 off["error_type"] = result.error_type
                 off["error_msg"] = result.error_msg
                 off["_eval_traceback"] = result.traceback
@@ -187,15 +167,24 @@ class Evolution:
             off["total_ms"] = int((time.perf_counter() - t_total) * 1000)
             return None, off
 
-    # ── batch (v0.1 sequential) ──────────────────────────────────────────
-
     def get_algorithm(self, population: list[dict], operators: list[str]):
-        results = [self.get_offspring(population, op) for op in operators]
+        """Generate one offspring per operator. Uses parallel workers if n_processes > 1."""
+        if self.n_processes == 1:
+            results = [self.get_offspring(population, op) for op in operators]
+        else:
+            try:
+                results = Parallel(n_jobs=self.n_processes)(
+                    delayed(self.get_offspring)(population, op) for op in operators
+                )
+            except Exception as e:
+                logger.warning(
+                    "  [parallel] %s: %s — falling back to sequential",
+                    type(e).__name__, e,
+                )
+                results = [self.get_offspring(population, op) for op in operators]
         parents = [p for p, _ in results]
         offspring = [o for _, o in results]
         return parents, offspring
-
-    # ── helpers ───────────────────────────────────────────────────────────
 
     @staticmethod
     def _is_duplicate(population: list[dict], code: str) -> bool:

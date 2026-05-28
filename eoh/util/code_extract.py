@@ -1,9 +1,4 @@
-"""Extract (algorithm description, code) from an LLM response.
-
-Logic mirrors upstream `evolution.py:Evolution._extract` line-by-line. The two
-output lists preserve upstream's API even though we only ever use the first
-element of each.
-"""
+"""Extract algorithm description and code block from an LLM response."""
 from __future__ import annotations
 
 import ast
@@ -15,13 +10,11 @@ def extract(response: str | None) -> tuple[list[str], list[str]]:
     if not response:
         return [], []
 
-    # ── code ──────────────────────────────────────────────────────────────
-    # 1. Fenced code blocks (most reliable).
+    # 1. Fenced code blocks.
     code = re.findall(r"```(?:python)?\n(.*?)```", response, re.DOTALL)
 
     if not code:
-        # 2. Locate first top-level Python statement and trim trailing prose
-        #    until what's left parses.
+        # 2. Find first top-level statement and trim until it parses.
         start = re.search(r"^(?:import |from |def |class |@)", response, re.MULTILINE)
         if start:
             candidate = response[start.start():].strip()
@@ -37,12 +30,11 @@ def extract(response: str | None) -> tuple[list[str], list[str]]:
                 except SyntaxError:
                     continue
 
-    # Strip any leading {description} line the LLM sometimes puts inside the code block.
+    # Strip any leading {description} line inside the code block.
     code = [re.sub(r"^\s*\{[^}]*\}\s*\n+", "", c, flags=re.DOTALL).strip() for c in code]
     code = [c for c in code if c]
 
-    # ── algorithm description ────────────────────────────────────────────
-    # Search only in text BEFORE the code to avoid matching Python dict literals.
+    # Search for description only before the code block.
     if "```" in response:
         pre_code = response[:response.find("```")].strip()
     elif code:
@@ -51,7 +43,6 @@ def extract(response: str | None) -> tuple[list[str], list[str]]:
     else:
         pre_code = response.strip()
 
-    # ≥ 8 chars to skip empty {}, single-letter vars, dict snippets.
     algorithm = re.findall(r"\{([^{}]{8,})\}", pre_code)
 
     if not algorithm and pre_code:
@@ -61,10 +52,7 @@ def extract(response: str | None) -> tuple[list[str], list[str]]:
 
 
 def prepend_imports(code: str, template_program: str) -> str:
-    """Prepend template's import lines to `code` if they're missing.
-
-    Mirrors upstream `Evolution._prepend_imports`.
-    """
+    """Prepend missing import lines from template to code."""
     from eoh.tasks.base import extract_import_lines
     prefix = extract_import_lines(template_program)
     if not prefix:

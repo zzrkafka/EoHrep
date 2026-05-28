@@ -1,9 +1,4 @@
-"""Nested dataclass config + YAML loader.
-
-The shape mirrors the official `EoHConfig` (eoh/src/eoh/config.py) but is
-organised by concern so the YAML stays human-readable. Validation mirrors the
-upstream `__post_init__` (uniform weights fallback, n_parents clamp).
-"""
+"""Dataclass config + YAML loader."""
 from __future__ import annotations
 
 import warnings
@@ -17,21 +12,19 @@ import yaml
 @dataclass
 class TaskConfig:
     name: str = "obp"
-    capacity: int = 100              # passed to BPONLINE.__init__; data uses per-instance capacity
-    timeout: int = 40                # seconds per evaluate() in sandbox
-    n_processes: int = 1             # v0.1: sequential; >1 not exercised
+    capacity: int = 100
+    timeout: int = 40                # seconds per evaluate()
+    n_processes: int = 1
 
 
 @dataclass
 class LLMConfig:
-    backend: str = "ollama"                                              # "ollama" or "stub"
+    backend: str = "ollama"          # "ollama" or "stub"
     base_url: str = "http://localhost:11434"
     model: str = "qwen2.5-coder:7b-instruct-q4_K_M"
     num_ctx: int = 8192
-    timeout: int = 180                                                    # matches upstream LLMConfig.timeout
-    max_retries: int = 5                                                  # matches upstream InterfaceAPI default
-    # NOTE: temperature/top_p/max_tokens deliberately omitted to mirror the
-    # official InterfaceAPI behaviour — server-side defaults apply.
+    timeout: int = 180
+    max_retries: int = 5
 
 
 @dataclass
@@ -41,7 +34,7 @@ class EAConfig:
     operators: list[str] = field(default_factory=lambda: ["e1", "e2", "m1", "m2"])
     operator_weights: list[float] | None = None
     n_parents: int = 2
-    seed: int = 2024                  # matches upstream random.seed(2024)
+    seed: int = 2024
 
 
 @dataclass
@@ -58,7 +51,6 @@ class Config:
     logging: LogConfig = field(default_factory=LogConfig)
 
     def __post_init__(self) -> None:
-        # Mirror upstream EoHConfig.__post_init__
         if self.ea.operator_weights is None:
             self.ea.operator_weights = [1.0] * len(self.ea.operators)
         if len(self.ea.operator_weights) != len(self.ea.operators):
@@ -70,7 +62,7 @@ class Config:
 
 
 def _coerce(data: dict[str, Any]) -> Config:
-    """Build a Config from a (possibly partial) plain-dict, preserving defaults."""
+    """Build Config from a partial dict, preserving defaults."""
     return Config(
         task=TaskConfig(**(data.get("task") or {})),
         llm=LLMConfig(**(data.get("llm") or {})),

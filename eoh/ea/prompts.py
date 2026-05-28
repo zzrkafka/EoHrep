@@ -1,18 +1,20 @@
-"""Prompt templates — verbatim from upstream `evolution.py:_build_prompt`.
+"""Prompt templates for each EA operator.
 
-DO NOT EDIT WITHOUT DIFFING UPSTREAM. Any drift here is a reproduction-killing
-silent change. See notes/06_eoh_repro_design.md §5.
-
-All builders return a single string (no separate system message — upstream
-sends only role=user content).
+Adds the paper's randomness-avoidance clause (Appendix B p.15) which the
+upstream GitHub demo omits; prevents local models from exploiting random noise.
 """
 from __future__ import annotations
 
 from eoh.tasks.base import detect_template_kind
 
 
+_RAND_CLAUSE = (
+    "Avoid utilizing the random component, and it is crucial to maintain self-consistency. "
+)
+
+
 def func_spec(template_program: str) -> str:
-    """Render the per-template implementation directive used in every prompt."""
+    """Render the implementation directive for a given template."""
     kind = detect_template_kind(template_program)
     if kind == "class":
         verb = "implement the following Python class"
@@ -23,7 +25,7 @@ def func_spec(template_program: str) -> str:
     return (
         f"{verb}:\n"
         f"```python\n{template_program.strip()}\n```\n"
-        "Do not give additional explanations."
+        f"{_RAND_CLAUSE}Do not give additional explanations."
     )
 
 
@@ -41,13 +43,7 @@ def build_prompt(
     template_program: str,
     parents: list[dict] | dict | None,
 ) -> str:
-    """Dispatch to the verbatim per-operator template.
-
-    Parent shape:
-        i1          → None
-        e1, e2      → list[dict] with keys 'algorithm', 'code'
-        m1, m2, m3  → single dict with the same keys
-    """
+    """Build the prompt string for the given operator."""
     spec = func_spec(template_program)
 
     if operator == "i1":
@@ -119,7 +115,8 @@ def build_prompt(
             "Next, analyze whether any can be overfit to in-distribution instances. "
             "Then, simplify the components to enhance generalization to out-of-distribution instances. "
             f"Finally, provide the revised code {keep_str}.\n"
-            f"{parents['code']}\nDo not give additional explanations."
+            f"{parents['code']}\n"
+            f"{_RAND_CLAUSE}Do not give additional explanations."
         )
 
     raise ValueError(f"Unknown operator: {operator}")

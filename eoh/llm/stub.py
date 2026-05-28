@@ -1,9 +1,4 @@
-"""Stub LLMClient — returns a fixed response for --dry-run and tests.
-
-Default response is a small, valid OBP best-fit heuristic. The class accepts
-a list of canned responses; on each call it advances through the list and
-loops back when exhausted. This lets tests simulate a richer interaction.
-"""
+"""Stub LLM client for --dry-run and tests."""
 from __future__ import annotations
 
 

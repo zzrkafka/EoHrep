@@ -1,11 +1,4 @@
-"""Parent selection + population management.
-
-Both verbatim from upstream:
-  - parent_selection: rank-based probabilistic sampling
-       p_i ∝ 1/(rank_i + 1 + len(pop))
-  - population_management: filter None objectives → dedup by objective value
-       → heapq.nsmallest (lower is better)
-"""
+"""Parent selection and population management."""
 from __future__ import annotations
 
 import heapq
@@ -13,10 +6,7 @@ import random
 
 
 def parent_selection(pop: list[dict], m: int) -> list[dict]:
-    """Pick m parents from `pop` weighted by rank (lower index = higher weight).
-
-    Caller is responsible for ensuring `pop` is sorted ascending by objective.
-    """
+    """Pick m parents weighted by rank (lower objective = higher weight)."""
     if not pop:
         raise ValueError("Cannot select parents from an empty population.")
     ranks = list(range(len(pop)))

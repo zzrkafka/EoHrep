@@ -1,7 +1,4 @@
-"""Online Bin Packing task — mirrors upstream `examples/bp_online/prob.py`.
-
-Lower-is-better. Objective = mean over datasets of (avg_bins_used - lb) / lb.
-"""
+"""Online Bin Packing task. Objective = mean (avg_bins_used - lb) / lb (lower is better)."""
 from __future__ import annotations
 
 from typing import Callable

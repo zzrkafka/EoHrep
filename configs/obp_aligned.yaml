@@ -14,7 +14,7 @@ task:
   name: obp
   capacity: 100
   timeout: 40
-  n_processes: 1
+  n_processes: 1                       # sequential; parallelism deferred (not needed for repro correctness)
 
 llm:
   backend: ollama
@@ -29,7 +29,7 @@ ea:
   n_pop: 20
   operators: [e1, e2, m1, m2, m3]      # full 5-operator set, matching paper §3.4
   operator_weights: null               # uniform [1.0]*5
-  n_parents: 2
+  n_parents: 5                         # paper Appendix B: "I have five existing heuristics..." (was 2)
   seed: 2024
 
 logging:

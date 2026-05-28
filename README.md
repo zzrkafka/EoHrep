@@ -1,96 +1,65 @@
-# EoH-local — Local Reproduction of Evolution of Heuristics
+# EoH-local
 
-A from-scratch reimplementation of **Evolution of Heuristics** (Liu et al., ICML 2024) driven by a **local LLM** via Ollama.
+A reproduction of *Evolution of Heuristics* (Liu et al., ICML 2024) on Online Bin Packing, run with a 7B local model on an 8 GiB-VRAM laptop. Paper: <https://arxiv.org/abs/2401.02051>. Reference code: <https://github.com/FeiLiu36/EoH>.
 
-- Original paper: <https://arxiv.org/abs/2401.02051>
-- Reference implementation: <https://github.com/FeiLiu36/EoH>
-- This reproduction: Online Bin Packing (OBP) task only in v0.1; framework designed for extension.
+## What I went after
 
----
+The straightforward goal — match the paper's numbers on OBP-Weibull-5kC100 — is unattainable here: the paper used cloud GPT-3.5 with ~2000 LLM queries; I have qwen2.5-coder-7B-Q4 and a wall-clock budget of about an hour. The interesting question is the residual one: *if I cannot match the paper, can I at least understand exactly why I cannot, and can I rule out infidelity in the framework as a cause?* That made the work less about chasing a number and more about identifying every place the reproduction could diverge from the paper, and being explicit about which divergences are forced (hardware) and which were latent (drift between the paper and the official demo).
 
-## Why this exists
+## What I found by asking that question
 
-The official EoH code targets cloud LLM APIs (DeepSeek/OpenAI). This repo answers: **can we get the same algorithm behaviour on a single laptop GPU with an open-weights coder model?** That requires aligning prompts, evaluation, and selection bit-for-bit with the official implementation while substituting only the LLM backend.
+The paper and the official `examples/bp_online/runEoH.py` disagree in four places. I read the paper carefully against the upstream source, and corrected each one back toward the paper:
 
-The 8 GiB-VRAM laptop constraint is real (RTX 4060 Laptop). Defaults are tuned for 7B-Q4 quantised models.
+| | Paper | `runEoH.py` (upstream) | This repo |
+|---|---|---|---|
+| Operator set | 5 (`i1, e1, e2, m1, m2, m3`), §3.4 | 4 (`m3` omitted) | 5 |
+| `pop_size` | ~20 (inferred from §5 budget) | 4 | 20 |
+| `n_parents` for `e1`/`e2` | 5 (Appendix B: "*I have five existing heuristics…*") | 2 | 5 |
+| Prompt tail | "*Avoid utilizing the random component, and it is crucial to maintain self-consistency.*" (Appendix B p.15) | omitted | restored |
 
----
+The fourth row is the one I am most attached to. I noticed it only because an early run reported a "new best" of 0.0394 from a heuristic that turned out to be `score(item, bins) = … + np.random.normal(0, 0.05, …)`. Across five numpy seeds that code's objective is `{0.03984, 0.03944, 0.03994, 0.03954, 0.03964}`; the run had recorded the lucky tail. Tracking down why the paper apparently avoided this failure mode, I found the randomness clause in the paper's appendix prompts and saw that `_build_prompt` in the upstream repo doesn't carry it. Putting it back eliminated the exploit and produced the first deterministic improvement over best-fit I'd seen.
+
+## Result
+
+OBP gap to LP lower bound (lower is better), on Weibull 5kC100:
+
+| | Gap | Note |
+|---|---|---|
+| Best fit (handcrafted) | 4.08 % | paper Table 1 |
+| EoH, GPT-3.5 | 0.66 % | paper Table 7 |
+| EoH, CodeLlama-7B (unquantised) | 1.07 % | paper Table 7, closest in size |
+| This repo, qwen2.5-coder-7B-Q4 | **3.87 %** | 440 queries, 77 min, deterministic across 5 seeds |
+| Same model under the upstream-demo config | 3.98 % | does not beat best-fit |
+
+The 0.11-point improvement (3.98 → 3.87) is small but it is the difference between "the framework is doing nothing" and "the framework is doing something". The ~3-percentage-point gap to CodeLlama-7B is what remains after I stop being able to blame the framework: it is plausibly Q4 quantisation, a different code-pretrained backbone, and ~4.5× less budget. Distinguishing those would need ablations I did not run.
+
+Full multi-run analysis: [`notes/07_obp_repro_report.md`](notes/07_obp_repro_report.md).
+
+## What I also noticed, that the paper does not report
+
+Across all three large runs, the per-operator parent → child token-Jaccard distance gives a stable ordering: **m3 ≈ m2 > m1 > e2 > e1**, where higher means "child code more similar to parent". This matches the paper's verbal design intent for each operator (`m3` simplifies, `e1` is *"totally different form"*), but the paper only states the intent. Seeing it land empirically — and survive a 5× change in run size — was reassuring; it argues the operator semantics are real and not prompt-noise.
+
+## What I built on top of upstream to enable this
+
+The upstream code records `(sample_order, operator, algorithm, code, objective)` per sample and collapses every evaluation failure to `objective=None`. I would not have diagnosed the random-noise exploit on that schema. So before the second run I added: structured failure classification (`error_type` + full traceback survives the sandbox subprocess), 8-character lineage IDs and `parent_ids` per sample, per-sample LLM and eval timings, raw prompt + response logs in `results/prompts/sample_<id>.json`, an `env.json` per run with the Ollama model's sha256 digest, and an offline `python -m eoh.analysis <run_dir>` that produces the operator-Jaccard table above. Plus 36 tests, all of which would have caught the bugs I introduced while refactoring. The algorithmic behaviour mirrors upstream byte-for-byte; the additions are observational.
 
 ## Quickstart
 
 ```powershell
-# 1. Install Ollama (https://ollama.com), then pull a coder model
 ollama pull qwen2.5-coder:7b-instruct-q4_K_M
+ollama serve
 
-# 2. (One-off) Make sure the Ollama server is up
-ollama serve            # leave running in a separate terminal
-
-# 3. Install Python deps
-uv sync                 # or: pip install -e .
-
-# 4. Run OBP reproduction
-python -m eoh.run --config configs/obp.yaml
-
-# 5. Inspect the run
-ls runs/<timestamp>/results/
-cat runs/<timestamp>/results/samples/samples_best.json
+pip install -e .
+python -m eoh.run --config configs/obp.yaml          # GitHub-demo config,  ~13 min
+python -m eoh.run --config configs/obp_aligned.yaml  # paper-aligned,       ~75 min
+python -m eoh.analysis runs/<timestamp>
+pytest
 ```
 
-A full OBP run is ~88 LLM calls (init `2·pop=8` + `n_pop·pop=80`). On qwen2.5-coder:7b-q4 each call takes 5–15 s decode + ≤2 s evaluation, so the whole run is ≈ 15–30 minutes wall-clock.
+## Scope
 
----
-
-## Repository layout
-
-```
-EOH/
-├── README.md                       ← this file
-├── CHANGELOG.md
-├── pyproject.toml
-├── configs/
-│   └── obp.yaml                    ← task/llm/ea config
-├── data/obp/instances.py           ← Weibull 5k (vendored from official)
-├── docs/                           ← formal specs (see Documentation index below)
-├── notes/                          ← research notes (advisor diff, design history)
-├── eoh/                            ← source tree
-│   ├── run.py                      ← CLI entry
-│   ├── config.py
-│   ├── llm/{client,ollama}.py
-│   ├── ea/{prompts,evolution,selection,loop}.py
-│   ├── eval/sandbox.py
-│   ├── tasks/{base,obp}.py
-│   └── util/{logging,ckpt,code_extract}.py
-├── tests/
-└── runs/<ts>/                      ← per-run output (gitignored)
-```
-
----
-
-## Documentation index
-
-For implementation details, start with:
-
-| Read first | Then | Reference |
-|---|---|---|
-| [docs/01_architecture.md](docs/01_architecture.md) — modules & data flow | [docs/04_prompt_spec.md](docs/04_prompt_spec.md) — LLM contract | [notes/06_eoh_repro_design.md](notes/06_eoh_repro_design.md) — original design doc |
-| [docs/03_evaluation_protocol.md](docs/03_evaluation_protocol.md) — what we score | [docs/07_test_plan.md](docs/07_test_plan.md) — how we validate | [docs/06_config_reference.md](docs/06_config_reference.md) — every YAML field |
-| [docs/08_reproducibility.md](docs/08_reproducibility.md) — seeds & env | [docs/09_threat_model.md](docs/09_threat_model.md) — code-exec safety | [docs/10_glossary.md](docs/10_glossary.md) |
-
-Architectural decisions are tracked as ADRs in `docs/adr/`.
-
----
-
-## Status
-
-| Version | State | Notes |
-|---------|-------|-------|
-| v0.0 | **planning** ← *current* | Design doc + specs complete; no code yet. |
-| v0.1 | not started | M0–M5 milestones; OBP closes. |
-
-See [CHANGELOG.md](CHANGELOG.md).
-
----
+Single task (OBP), single config-pair, single run per config (`seed=2024`). The paper covers OBP + TSP-GLS + FSSP with 3 runs each. Adding TSP-GLS is mechanical (`tasks/base.py:BaseProblem` is task-agnostic); larger LLM ablations and the paper's OOD evaluation set (Table 9) are the obvious next steps.
 
 ## License
 
-MIT, following the original EoH project.
+MIT, following upstream.

@@ -1,13 +1,4 @@
-"""BaseProblem ABC + AST helpers for inspecting `template_program`.
-
-Mirrors the upstream `eoh/src/eoh/problem.py` API exactly: subclasses define
-`template_program` (Python source) and `task_description` (one sentence), and
-implement `evaluate_program(program_str, callable_func) -> float | None`. The
-framework's `evaluate(code_string)` exec's the code, looks up the entry point,
-and forwards to `evaluate_program`.
-
-Lower-is-better is the convention (see notes/06_eoh_repro_design.md §2.4).
-"""
+"""BaseProblem ABC and AST helpers for template inspection."""
 from __future__ import annotations
 
 import ast
@@ -42,12 +33,7 @@ def detect_template_kind(template_program: str) -> str:
 
 
 def get_entry_name(template_program: str) -> str:
-    """Return the primary callable name to look up after exec().
-
-    - Class template  → first ClassDef.name
-    - Multi-function  → last FunctionDef.name (typically the main entry point)
-    - Single function → FunctionDef.name
-    """
+    """Return the primary callable name to look up after exec()."""
     tree = ast.parse(template_program)
     classes = [n.name for n in tree.body if isinstance(n, ast.ClassDef)]
     if classes:
@@ -59,10 +45,7 @@ def get_entry_name(template_program: str) -> str:
 
 
 class BaseProblem(ABC):
-    """Subclass me and set `template_program` + `task_description`.
-
-    Then implement `evaluate_program(program_str, callable_func)`.
-    """
+    """Base class for EoH tasks. Set `template_program` and `task_description`, implement `evaluate_program`."""
 
     template_program: str = ""
     task_description: str = ""
@@ -73,13 +56,7 @@ class BaseProblem(ABC):
         self.n_processes = multiprocessing.cpu_count() if n_processes == -1 else n_processes
 
     def evaluate(self, code_string: str) -> float:
-        """Framework entry. Exec generated code, look up entry callable, delegate.
-
-        Exceptions are NOT caught here — the sandbox subprocess in
-        `eoh.eval.sandbox` is responsible for capturing them with full
-        traceback. Returning `None` is reserved for "entry point not defined";
-        any other failure raises.
-        """
+        """Exec generated code, find the entry callable, and call evaluate_program."""
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             import numpy as np

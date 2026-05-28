@@ -1,14 +1,4 @@
-"""Ollama-backed LLMClient via the OpenAI-compatible endpoint.
-
-Ollama serves `/v1/chat/completions` at the OpenAI wire format. The body sent
-mirrors upstream `InterfaceAPI`: model + a single user-role message. We
-deliberately omit temperature/max_tokens to let the model's modelfile
-defaults apply — the same behaviour as upstream against cloud APIs.
-
-`num_ctx` is an Ollama extension passed via the `options` field; required
-because the default 2048 is not enough for the e1/e2 prompts with multiple
-parent algorithms.
-"""
+"""Ollama LLM client via the OpenAI-compatible /v1/chat/completions endpoint."""
 from __future__ import annotations
 
 import logging
@@ -37,8 +27,6 @@ class OllamaClient:
         self.max_retries = max_retries
         if verify_on_init:
             self._verify_connection()
-
-    # ── public ────────────────────────────────────────────────────────────
 
     def get_response(self, prompt: str) -> str | None:
         body: dict[str, Any] = {
@@ -76,13 +64,8 @@ class OllamaClient:
         )
         return None
 
-    # ── private ──────────────────────────────────────────────────────────
-
     def _verify_connection(self) -> None:
-        """Health-check that mirrors upstream's '1+1=?' probe.
-
-        Raises RuntimeError if Ollama is unreachable or the model is missing.
-        """
+        """Probe Ollama; raise RuntimeError if unreachable or model missing."""
         probe = self.get_response("1+1=?")
         if probe is None:
             raise RuntimeError(

@@ -1,14 +1,4 @@
-"""Code-similarity primitives.
-
-Two cheap, complementary metrics:
-  - `ast_signature(code)` — structural fingerprint that ignores variable
-    names, literal values, docstrings, and whitespace. Two snippets with the
-    same signature are "the same algorithm" up to alpha-renaming + reformat.
-  - `token_jaccard(a, b)` — Jaccard similarity over identifier tokens.
-    Cheap, no parsing, works on snippets that don't quite parse.
-
-Neither claims to be a semantic equivalence check. They're triage tools.
-"""
+"""Code similarity primitives: AST signature and token Jaccard."""
 from __future__ import annotations
 
 import ast
@@ -18,14 +8,8 @@ import tokenize
 from io import BytesIO
 
 
-# ── AST normalisation ────────────────────────────────────────────────────
-
 class _Normalizer(ast.NodeTransformer):
-    """Alpha-rename identifiers, mask literal values, drop docstrings.
-
-    Two snippets that differ only in variable/parameter names, numeric or
-    string constants, or comments/docstrings will have identical signatures.
-    """
+    """Normalize AST: alpha-rename identifiers, mask literals, drop docstrings."""
 
     def __init__(self) -> None:
         self._name_map: dict[str, str] = {}
@@ -46,25 +30,18 @@ class _Normalizer(ast.NodeTransformer):
         return node
 
     def visit_FunctionDef(self, node: ast.FunctionDef) -> ast.AST:
-        # Strip docstring (first stmt if it's a bare Constant str).
         if (node.body and isinstance(node.body[0], ast.Expr)
                 and isinstance(node.body[0].value, ast.Constant)
                 and isinstance(node.body[0].value.value, str)):
             node.body = node.body[1:]
-        # Don't rename the entry function itself (signatures must collide
-        # across alpha-renamed code, but renaming `score` would also lose
-        # one bit of structural info that's useful for EoH).
         self.generic_visit(node)
         return node
 
     def visit_Constant(self, node: ast.Constant) -> ast.AST:
-        # Mask constant value by type — keeps "1.0 vs '1.0' vs True" distinct
-        # without leaking specific numbers (we want '1.5 * x' ≡ '2.0 * x').
         node.value = type(node.value).__name__
         return node
 
     def visit_Attribute(self, node: ast.Attribute) -> ast.AST:
-        # Don't rename attribute names like np.argmax → keeps API calls visible.
         self.generic_visit(node)
         return node
 
@@ -81,13 +58,11 @@ def ast_signature(code: str) -> str | None:
     return hashlib.sha1(dump.encode("utf-8")).hexdigest()[:16]
 
 
-# ── Token Jaccard ────────────────────────────────────────────────────────
-
 _NAME_RE = re.compile(r"[A-Za-z_]\w*")
 
 
 def _tokens(code: str) -> set[str]:
-    """Token set: identifiers + operator/punct tokens. Whitespace stripped."""
+    """Return identifier, operator, and number tokens from code."""
     try:
         toks = tokenize.tokenize(BytesIO(code.encode("utf-8")).readline)
         result: set[str] = set()
@@ -97,7 +72,6 @@ def _tokens(code: str) -> set[str]:
                     result.add(t.string)
         return result
     except (tokenize.TokenizeError, IndentationError):
-        # Fallback: regex over identifiers only.
         return set(_NAME_RE.findall(code))
 
 

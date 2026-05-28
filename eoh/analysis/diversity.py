@@ -1,27 +1,4 @@
-"""Offline diversity report: read a run dir, compute aggregate similarity.
-
-Output: <run_dir>/results/analysis.json with the shape
-
-    {
-      "total_samples": int,
-      "succeeded_samples": int,
-      "byte_unique": int,                 # unique by exact code string
-      "ast_unique": int,                  # unique by normalised AST signature
-      "ast_dedup_rate": float,            # 1 - ast_unique/byte_unique (the "fake-novelty" rate)
-      "pairwise_jaccard": {
-          "n_pairs": int,
-          "mean": float, "p10": float, "p50": float, "p90": float,
-          "histogram": [{"lo": 0.0, "hi": 0.1, "count": int}, ...]
-      },
-      "per_operator_parent_child_jaccard": {
-          "<op>": {"n": int, "mean": float, "p10": float, "p50": float, "p90": float}
-      },
-      "per_generation_population_diversity": [
-          {"gen": int, "size": int, "mean_pairwise_jaccard": float, "ast_unique": int}
-      ],
-      "operator_failure_breakdown": {"<op>": {"<failure>": count}}
-    }
-"""
+"""Compute and write a diversity report for a completed run."""
 from __future__ import annotations
 
 import json
@@ -31,8 +8,6 @@ from typing import Any, Iterable
 
 from eoh.analysis.similarity import ast_signature, token_jaccard
 
-
-# ── data loading ──────────────────────────────────────────────────────────
 
 def _load_samples(run_dir: Path) -> list[dict]:
     samples: list[dict] = []
@@ -53,8 +28,6 @@ def _load_populations(run_dir: Path) -> dict[int, list[dict]]:
             pops[gen] = json.load(f)
     return pops
 
-
-# ── helpers ───────────────────────────────────────────────────────────────
 
 def _percentiles(xs: list[float], ps=(10, 50, 90)) -> dict[str, float]:
     if not xs:
@@ -88,14 +61,11 @@ def _summarise(xs: list[float]) -> dict[str, float | int]:
     return {"n": len(xs), "mean": statistics.mean(xs), **_percentiles(xs)}
 
 
-# ── analyses ──────────────────────────────────────────────────────────────
-
 def analyse(run_dir: Path) -> dict[str, Any]:
     samples = _load_samples(run_dir)
     pops = _load_populations(run_dir)
     succeeded = [s for s in samples if s.get("objective") is not None and s.get("code")]
 
-    # ── uniqueness ──────────────────────────────────────────────────────
     byte_codes = {s["code"] for s in succeeded}
     sigs = {ast_signature(s["code"]) for s in succeeded}
     sigs.discard(None)
@@ -103,7 +73,6 @@ def analyse(run_dir: Path) -> dict[str, Any]:
         1 - (len(sigs) / len(byte_codes)) if byte_codes else 0.0
     )
 
-    # ── pairwise jaccard over succeeded samples ─────────────────────────
     pair_jaccs: list[float] = []
     for i in range(len(succeeded)):
         for j in range(i + 1, len(succeeded)):
@@ -116,7 +85,6 @@ def analyse(run_dir: Path) -> dict[str, Any]:
         "histogram": _histogram(pair_jaccs),
     }
 
-    # ── per-operator parent → child jaccard ─────────────────────────────
     id_to_code: dict[str, str] = {s["id"]: s["code"] for s in samples if s.get("code")}
     by_op: dict[str, list[float]] = {}
     for s in succeeded:
@@ -130,7 +98,6 @@ def analyse(run_dir: Path) -> dict[str, Any]:
                 by_op.setdefault(op, []).append(token_jaccard(parent_code, s["code"]))
     per_op = {op: _summarise(xs) for op, xs in by_op.items()}
 
-    # ── per-generation population diversity ─────────────────────────────
     per_gen = []
     for gen in sorted(pops):
         pop = pops[gen]
@@ -150,7 +117,6 @@ def analyse(run_dir: Path) -> dict[str, Any]:
             "ast_unique": len(sigs_gen),
         })
 
-    # ── failure breakdown by operator ───────────────────────────────────
     failure_breakdown: dict[str, dict[str, int]] = {}
     for s in samples:
         if not s.get("failure"):

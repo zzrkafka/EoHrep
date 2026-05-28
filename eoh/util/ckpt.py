@@ -1,22 +1,4 @@
-"""Sample journal + population checkpoints + prompt-level forensics.
-
-Per-sample layout:
-    results/run_log.txt
-    results/samples/
-        samples_<lo>~<hi>.json     # batched every SAMPLE_BATCH
-        samples_best.json          # overwritten on new best
-    results/prompts/
-        sample_<id>.json           # raw prompt(s) + raw response(s) per sample
-    results/pops/
-        population_generation_<g>.json
-    results/pops_best/
-        population_generation_<g>.json
-
-Sample record fields (one per offspring):
-    sample_order, id, operator, parent_ids,
-    algorithm, code, objective, failure,
-    llm_retries, dedup_retries, llm_ms, eval_ms, total_ms
-"""
+"""Sample journal, population checkpoints, and prompt forensics."""
 from __future__ import annotations
 
 import json
@@ -27,7 +9,6 @@ logger = logging.getLogger("eoh")
 
 SAMPLE_BATCH = 200
 
-# Persisted fields on each sample record (drives the dict slicing below).
 SAMPLE_FIELDS = (
     "sample_order", "id", "operator", "parent_ids",
     "algorithm", "code", "objective", "failure",
@@ -35,7 +16,6 @@ SAMPLE_FIELDS = (
     "llm_retries", "dedup_retries", "llm_ms", "eval_ms", "total_ms",
 )
 
-# Slim view of an individual stored in population snapshots.
 POP_FIELDS = ("id", "algorithm", "code", "objective", "other_inf")
 
 
@@ -52,12 +32,11 @@ class SampleJournal:
         self.count = 0
         self.best_obj: float | None = None
         self.best_id: str | None = None
-        # Aggregates for summary.json (L5).
         self.failure_counts: dict[str, int] = {}
         self.operator_stats: dict[str, dict[str, int]] = {}
 
     def record(self, op: str, offspring: dict) -> bool:
-        """Persist one offspring. Returns True if it set a new global best."""
+        """Record one offspring. Returns True if it is a new global best."""
         self.count += 1
 
         obj = offspring.get("objective")
@@ -66,7 +45,6 @@ class SampleJournal:
             self.best_obj = obj
             self.best_id = offspring["id"]
 
-        # Op aggregates.
         stat = self.operator_stats.setdefault(
             op, {"attempted": 0, "succeeded": 0, "new_best": 0}
         )
@@ -76,18 +54,15 @@ class SampleJournal:
         if is_new_best:
             stat["new_best"] += 1
 
-        # Failure aggregates.
         if offspring.get("failure"):
             self.failure_counts[offspring["failure"]] = (
                 self.failure_counts.get(offspring["failure"], 0) + 1
             )
 
-        # Build record from canonical field list to keep schema explicit.
         record = {k: offspring.get(k) for k in SAMPLE_FIELDS}
         record["sample_order"] = self.count
-        record["operator"] = op  # in case offspring's op was renamed
+        record["operator"] = op
 
-        # Persist prompts + responses to prompts/sample_<id>.json
         self._write_prompt_log(offspring)
 
         self._buffer.append(record)
@@ -101,7 +76,6 @@ class SampleJournal:
         self._flush()
 
     def save_population(self, population: list[dict], gen: int) -> None:
-        # Slice to the slim POP_FIELDS schema for snapshots.
         slim = [{k: ind.get(k) for k in POP_FIELDS} for ind in population]
         path = self.pops_dir / f"population_generation_{gen}.json"
         try:
@@ -118,15 +92,8 @@ class SampleJournal:
             except OSError as e:
                 logger.warning("Could not save best individual to %s: %s", best_path, e)
 
-    # ── internal ─────────────────────────────────────────────────────────
-
     def _write_prompt_log(self, offspring: dict) -> None:
-        """Dump raw LLM IO trail + eval exception next to the sample.
-
-        The prompt log is the place to look when diagnosing failures: it
-        contains every prompt/response pair the LLM saw for this sample,
-        and on eval_error / eval_timeout it contains the full traceback.
-        """
+        """Write prompts, responses, and eval traceback to prompts/sample_<id>.json."""
         prompts = offspring.get("_prompts") or []
         responses = offspring.get("_responses") or []
         tb = offspring.get("_eval_traceback")
@@ -184,9 +151,5 @@ class SampleJournal:
 
 
 def strip_private(ind: dict) -> dict:
-    """Return a copy of `ind` with private (underscore-prefixed) keys removed.
-
-    Used when offspring needs to enter the population — the population
-    snapshot stays slim.
-    """
+    """Return a copy of ind with underscore-prefixed keys removed."""
     return {k: v for k, v in ind.items() if not k.startswith("_")}

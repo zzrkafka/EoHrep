@@ -1,10 +1,4 @@
-"""Collect environment + git + LLM identity metadata at run start.
-
-Goal: any artifact produced today must be re-traceable to (a) the source
-revision that produced it, (b) the Python/numpy versions in use, (c) the
-exact LLM weights served. None of this is in the algorithm — it's the
-forensics layer.
-"""
+"""Collect environment, git, and Ollama metadata at run start."""
 from __future__ import annotations
 
 import json
@@ -43,7 +37,7 @@ def _git_info(cwd: str | None = None) -> dict[str, Any]:
 
 
 def _gpu_info() -> dict[str, Any]:
-    """Query nvidia-smi if available; return {} on any failure."""
+    """Query nvidia-smi; return {} if unavailable."""
     try:
         r = subprocess.run(
             ["nvidia-smi", "--query-gpu=name,memory.total,memory.free,driver_version",
@@ -76,7 +70,7 @@ def _numpy_version() -> str:
 
 
 def _ollama_meta(base_url: str, model: str) -> dict[str, Any]:
-    """Query Ollama for server version and the model's exact digest."""
+    """Query Ollama server version and model digest."""
     info: dict[str, Any] = {"available": False, "base_url": base_url, "model": model}
     try:
         v = requests.get(f"{base_url.rstrip('/')}/api/version", timeout=5)
@@ -87,9 +81,8 @@ def _ollama_meta(base_url: str, model: str) -> dict[str, Any]:
         info["error_version"] = str(e)
         return info
 
-    try:
-        # Digest lives in /api/tags, not /api/show.
-        t = requests.get(f"{base_url.rstrip('/')}/api/tags", timeout=10)
+        try:
+            t = requests.get(f"{base_url.rstrip('/')}/api/tags", timeout=10)
         if t.status_code == 200:
             for m in t.json().get("models", []):
                 if m.get("name") == model:
@@ -115,7 +108,7 @@ def collect_env_metadata(
     ollama_base_url: str | None = None,
     ollama_model: str | None = None,
 ) -> dict[str, Any]:
-    """Build the env metadata dict written to runs/<ts>/env.json."""
+    """Build env metadata dict for runs/<ts>/env.json."""
     meta: dict[str, Any] = {
         "python_version": sys.version,
         "python_executable": sys.executable,

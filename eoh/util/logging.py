@@ -1,7 +1,4 @@
-"""'eoh' named logger, mirroring upstream utils/logger.py.
-
-File + stdout handler, `[%(asctime)s] %(message)s` format, INFO/DEBUG toggle.
-"""
+"""Logger setup for the 'eoh' logger."""
 from __future__ import annotations
 
 import logging
